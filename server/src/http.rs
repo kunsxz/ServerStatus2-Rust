@@ -4,6 +4,7 @@ use hyper::{header, Body, Request, Response, StatusCode};
 use minijinja::context;
 use prettytable::Table;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 
 use crate::jinja;
 use crate::Asset;
@@ -35,11 +36,7 @@ pub async fn init_client(req: Request<Body>) -> Result<Response<Body>> {
     let params: HashMap<String, String> = req
         .uri()
         .query()
-        .map(|v| {
-            url::form_urlencoded::parse(v.as_bytes())
-                .into_owned()
-                .collect()
-        })
+        .map(|v| url::form_urlencoded::parse(v.as_bytes()).into_owned().collect())
         .unwrap_or_else(HashMap::new);
 
     // query args
@@ -49,8 +46,7 @@ pub async fn init_client(req: Request<Body>) -> Result<Response<Body>> {
     let gid = params.get("gid").unwrap_or(&invalid);
     let alias = params.get("alias").unwrap_or(&invalid);
 
-    if pass.is_empty() || (uid.is_empty() && gid.is_empty()) || (uid.is_empty() && alias.is_empty())
-    {
+    if pass.is_empty() || (uid.is_empty() && gid.is_empty()) || (uid.is_empty() && alias.is_empty()) {
         return Ok(Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .body(StatusCode::BAD_REQUEST.canonical_reason().unwrap().into())?);
@@ -139,23 +135,23 @@ pub async fn init_client(req: Request<Body>) -> Result<Response<Body>> {
         client_opts.push_str(" --disable-extra");
     }
     if weight > 0 {
-        client_opts.push_str(&format!(r#" -w {}"#, weight));
+        let _ = write!(client_opts, r#" -w {}"#, weight);
     }
     if !gid.is_empty() {
-        client_opts.push_str(&format!(r#" -g "{}""#, gid));
-        client_opts.push_str(&format!(r#" --alias "{}""#, alias));
+        let _ = write!(client_opts, r#" -g "{}""#, gid);
+        let _ = write!(client_opts, r#" --alias "{}""#, alias);
     }
     if !uid.is_empty() {
-        client_opts.push_str(&format!(r#" -u "{}""#, uid));
+        let _ = write!(client_opts, r#" -u "{}""#, uid);
     }
     if !notify {
         client_opts.push_str(" --disable-notify");
     }
     if !host_type.is_empty() {
-        client_opts.push_str(&format!(r#" -t "{}""#, host_type));
+        let _ = write!(client_opts, r#" -t "{}""#, host_type);
     }
     if !location.is_empty() {
-        client_opts.push_str(&format!(r#" --location "{}""#, location));
+        let _ = write!(client_opts, r#" --location "{}""#, location);
     }
 
     Ok(jinja::render_template(
@@ -196,13 +192,11 @@ pub fn init_jinja_tpl() -> Result<()> {
     let map_html: String = String::from_utf8(map_data.data.try_into()?).unwrap();
     jinja::add_template(KIND, "map", map_html);
 
-    let detail_ht_data =
-        Asset::get("/jinja/detail_ht.jinja.html").expect("detail_ht.jinja.html not found");
+    let detail_ht_data = Asset::get("/jinja/detail_ht.jinja.html").expect("detail_ht.jinja.html not found");
     let detail_ht_html: String = String::from_utf8(detail_ht_data.data.try_into()?).unwrap();
     jinja::add_template(KIND, "detail_ht", detail_ht_html);
 
-    let client_init_sh =
-        Asset::get("/jinja/client-init.jinja.sh").expect("client-init.jinja.sh not found");
+    let client_init_sh = Asset::get("/jinja/client-init.jinja.sh").expect("client-init.jinja.sh not found");
     let client_init_sh_s: String = String::from_utf8(client_init_sh.data.try_into()?).unwrap();
     jinja::add_template(KIND, "client-init", client_init_sh_s);
     Ok(())
@@ -336,20 +330,17 @@ pub async fn get_detail(req: Request<Body>) -> Result<Response<Body>> {
     }
     // table.printstd();
 
-    Ok(jinja::render_template(
-        KIND,
-        "detail",
-        context!(pretty_content => table.to_string()),
-        true,
+    Ok(
+        jinja::render_template(KIND, "detail", context!(pretty_content => table.to_string()), true)
+            .map(|contents| {
+                Response::builder()
+                    .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+                    .body(Body::from(contents))
+            })?
+            .unwrap_or(
+                Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(INTERNAL_SERVER_ERROR.into())?,
+            ),
     )
-    .map(|contents| {
-        Response::builder()
-            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-            .body(Body::from(contents))
-    })?
-    .unwrap_or(
-        Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(INTERNAL_SERVER_ERROR.into())?,
-    ))
 }
